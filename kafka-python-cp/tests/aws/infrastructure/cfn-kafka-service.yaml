@@ -1,0 +1,67 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: Validation infrastructure
+
+Parameters:
+
+  Version:
+    Description: The version of the packages
+    Type: String
+    Default: docker
+
+  Environment:
+    Description: Environment to deploy to.
+    Type: String
+    Default: docker
+    AllowedValues:
+      - test
+
+  ServiceName:
+    Description: The name of the service
+    Type: String
+    Default: kafka-python
+
+Mappings:
+
+  EnvMap:
+
+    docker:
+      destinationName: eu-docker-data-eu
+
+Resources:
+  DestionationDataLakeBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !FindInMap [EnvMap, !Ref Environment, destinationName]
+      AccessControl: BucketOwnerFullControl
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: false
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  S3ImportQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      DelaySeconds: 0
+      MaximumMessageSize: 262144
+      MessageRetentionPeriod: 1209600
+      QueueName: !Sub ${ServiceName}-s3-import-${Environment}
+      ReceiveMessageWaitTimeSeconds: 20
+      VisibilityTimeout: 3600
+
+
+Outputs:
+  QueueName:
+    Description: Name of  SQS Queue
+    Value:
+      Fn::GetAtt:
+        - "S3ImportQueue"
+        - "QueueName"
+  S3Bucket:
+    Description: Bucket Created
+    Value: !Ref DestionationDataLakeBucket

@@ -1,0 +1,107 @@
+version: "3.8"
+networks:
+  kafka_bridge:
+    external: false
+    name: kafka_bridge
+
+services:
+  kafka-image:
+    image: test
+    networks:
+      - kafka_bridge
+    environment:
+      SCHEMA_REGISTRY_LISTENERS: http://schema-registry:8081
+      KAFKA_BROKER: kafka-broker:29092
+    build:
+      context: ./tests/shared
+      dockerfile: Dockerfile
+
+  systemtests:
+    container_name: systemtests-kafka:${VERSION}
+    networks:
+      - kafka_bridge
+    build:
+      context: ./tests/system
+      dockerfile: Dockerfile
+    depends_on:
+      - schema-registry
+      - zookeeper
+      - kafka-broker
+      - connect1
+      - akhq
+      - aws-mock
+    environment:
+      PYTHONDONTWRITEBYTECODE: 1
+      MOCK_AWS_HOST: localstack:4566
+      AWS_REGION: eu-west-1
+      AWS_PROFILE: default
+      ENVIRONMENT: docker
+      SCHEMA_REGISTRY_LISTENERS: http://schema-registry:8081
+      KAFKA_BROKER: kafka-broker:29092
+      S3_EXPORT_BUCKET: eu-docker-data-eu
+    volumes:
+      - ./jobs/:/usr/src/jobs
+      - ./tests/shared:/usr/src/tests/shared
+      - ./tests/shared/awsmock-credentials:/root/.aws/credentials
+
+  systemtests-watch:
+    container_name: systemtests-kafka-watch:${VERSION}
+    networks:
+      - kafka_bridge
+    build:
+      context: ./tests/system
+      dockerfile: Dockerfile
+    depends_on:
+      - schema-registry
+      - zookeeper
+      - kafka-broker
+      - connect1
+      - akhq
+      - aws-mock
+    entrypoint: ptw
+    command: --ext=py,feature --ignore=/.cache/** --config pytest.cfg -p --pdb
+    environment:
+      PYTHONDONTWRITEBYTECODE: 1
+      AWS_REGION: eu-west-1
+      AWS_PROFILE: default
+      MOCK_AWS_HOST: localstack:4566
+      ENVIRONMENT: docker
+      SCHEMA_REGISTRY_LISTENERS: http://schema-registry:8081
+      KAFKA_BROKER: kafka-broker:29092
+      S3_EXPORT_BUCKET: eu-docker-data-eu
+    volumes:
+      - ./jobs/:/usr/src/jobs
+      - ./tests/:/usr/src/tests
+      - ./tests/shared/awsmock-credentials:/root/.aws/credentials
+
+
+  localstack:
+    image: localstack/localstack:${LOCAL_STACK}
+    environment:
+      - SERVICES=${SERVICES-s3,sqs,sns,dynamodb,cloudformation}
+      - HOSTNAME=${HOSTNAME-localhost}
+      - HOSTNAME_EXTERNAL=${HOSTNAME_EXTERNAL-localhost}
+      - DEFAULT_REGION=${DEFAULT_REGION-eu-west-1}
+      - DEBUG=${DEBUG-1}
+    ports:
+      - "4566:4566"
+    networks:
+      - kafka_bridge
+
+  aws-mock:
+    container_name: aws-cli-docker-${REPOSITORY}
+    build:
+      context: ./tests/aws
+      dockerfile: Dockerfile
+    entrypoint: /bin/bash
+    command: ./provision-localstack.sh
+    environment:
+      AWS_ACCESS_KEY_ID: none
+      AWS_SECRET_ACCESS_KEY: none
+      AWS_REGION: ${AWS_REGION-eu-west-1}
+      SERVICENAME: ${REPOSITORY}
+      ENVIRONMENT: docker
+    networks:
+      - kafka_bridge
+    depends_on:
+      - localstack
